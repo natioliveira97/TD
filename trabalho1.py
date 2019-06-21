@@ -77,8 +77,12 @@ def verifyDenyTerms (message):
 	data = deny_terms.read()
 	data = data.split('\n')
 
+	#print(message)
+
 	for i in range(len(data)):
-		if(message.find(data[i])!=-1):
+		pos = message.find(data[i])
+		if(pos!=-1):
+
 			return data[i]
 
 	return ""
@@ -88,6 +92,11 @@ def log (url, port, state):
 
 def sendBlacklistMessage(conn):
 	file = open("blacklist_message.txt", "r") 
+	response = file.read()
+	conn.send(response)
+
+def sendDenyTermsMessage(conn):
+	file = open("denyterms_message.txt", "r") 
 	response = file.read()
 	conn.send(response)
 
@@ -160,8 +169,6 @@ def  manageRequest (conn, client_addr, contador):
 	webserver, port = findWebserver(request)
 	url = findURL(request)
 
-	print(webserver, port, url)
-
 	isBlack = verifyBlacklist(webserver)
 	if(isBlack):
 		sendBlacklistMessage(conn)
@@ -193,10 +200,10 @@ def  manageRequest (conn, client_addr, contador):
 					
 					if (len(data) > 0):
 						if(verifyDenyTerms(data) == ""):
-							conn.send(data)
+							getData(request, conn, webserver, port, url)
 							log(url, port, "LOG: Site permitido (Sem termos proibidos)")
 						else:
-							sendBlacklistMessage(conn)
+							sendDenyTermsMessage(conn)
 							log(url, port, "LOG: Site bloqueado (Termo proibido na resposta: %s)" % verifyDenyTerms(data))
 					else:
 						break
@@ -209,7 +216,7 @@ def  manageRequest (conn, client_addr, contador):
 				log(url, port, exception)
 
 		else:
-			sendBlacklistMessage(conn)
+			sendDenyTermsMessage(conn)
 			conn.close()
 			log(url, port, "LOG: Site bloqueado (Termo proibido na requisicao: %s)" % verifyDenyTerms(request))
 	
@@ -217,7 +224,7 @@ def  manageRequest (conn, client_addr, contador):
 
 
 	conn.close()
-	print("CLOSED %s" % contador)
+	#print("CLOSED %s" % contador)
 
 
 
@@ -241,7 +248,7 @@ def main():
 	# Ficar ouvindo a porta e interceptando pacotes
 	while 1:
 		try:
-			print("Contador %s" % contador)
+			#print("Contador %s" % contador)
 			conn, client_addr = s_browser_proxy.accept()
 			#manageRequest(conn, client_addr, contador)
 
