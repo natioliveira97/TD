@@ -10,6 +10,8 @@ MAX_CONNECTIONS = 50
 MAX_DATA = 4000
 PROXY_PORT = 8002
 TIME = 31536000
+MAX_TIME_CACHE = 10*TIME # Maximo de tempo que um arquivo pode ficar na cache
+
 
 def findWebserver (request):
 	# Divide a mensagem em linhas
@@ -109,25 +111,41 @@ def fileFromServer(request, conn, webserver, port, url):
 
 def saveCache(url, content):
 	filename = url.replace('/', '_')
-	cached_file = open('cache/' + filename, 'a+')
+	filename = 'cache/' + filename
+	cached_file = open(filename, 'a+')
 	cached_file.write(content)
 	cached_file.close()
 
 
+# Acessa o cabecalho da pagina HTTP e verifica se o conteudo foi modificado desde o preenchimento da cache
+# Se sim, retorna 1, senao, retorna 0
+def pageModified(request, conn, webserver, port, url):
+	return 1
+
+
+
 def getData(request, conn, webserver, port, url):
 	filename = url.replace('/', '_')
+	filename = 'cache/' + filename
 	
 	try:
-		file = open('cache/' + filename)
+		file = open(filename)
 
-		if( (time.time() - os.path.getmtime('cache/' + filename)) < TIME ):
-			data = file.read()
-			conn.send(data)
+		# Verifica se o tempo desse arquivo da cache expirou
+		if( (time.time() - os.path.getmtime(filename)) > TIME ):
 
-			conn.close()
-		else:
+			if(pageModified(request, conn, webserver, port, url)):
+				fileFromServer(request, conn, webserver, port, url)
+				return
 
-			fileFromServer(request, conn, webserver, port, url)
+			else:
+				# Atualiza o horario do ultimo acesso e da ultima modificacao com o horario atual
+				os.utime(filename, None)
+
+		data = file.read()
+		conn.send(data)
+
+		conn.close()
 
 	except IOError:
 		fileFromServer(request, conn, webserver, port, url)
