@@ -1,3 +1,9 @@
+## @file tranabalho1.py
+## @title Servidor Proxy
+## @author Natalia Oliveira Borges 160015863
+## @author Livia Gomes Costa Fonseca 160034078
+
+
 import socket
 import thread
 import string
@@ -6,13 +12,15 @@ import os
 import os.path
 
 
-MAX_CONNECTIONS = 50
-MAX_DATA = 4000
-PROXY_PORT = 8002
-TIME = 31536000
-MAX_TIME_CACHE = 10*TIME # Maximo de tempo que um arquivo pode ficar na cache
+MAX_CONNECTIONS = 30  		# Maximo de conexoes simultaneas
+MAX_DATA = 4000  			# Tamanho maximo de leitura
+PROXY_PORT = 8002			# Porta padrao de conexao com o browser
+TIME = 31536000				
+MAX_TIME_CACHE = 10*TIME 	# Maximo de tempo que um arquivo pode ficar na cache
 
-
+## @brief Analisa a mensagem de requisicao e retorna o servidor web
+## @param request Requisicao HTTP
+## @return Nome do servido web
 def findWebserver (request):
 	# Divide a mensagem em linhas
 	lines = request.split('\n')
@@ -40,6 +48,9 @@ def findWebserver (request):
 
 	return "noServer", -1
 
+## @brief Analisa a mensagem de requisicao e retorna a URL desejada
+## @param request Requisicao HTTP
+## @return URL
 def findURL (request):
 	# Encontra url
 	lines = request.split('\n')
@@ -221,16 +232,7 @@ def  manageRequest (conn, client_addr, contador):
 			log(url, port, "LOG: Site bloqueado (Termo proibido na requisicao: %s)" % verifyDenyTerms(request))
 	
 
-
-
 	conn.close()
-	#print("CLOSED %s" % contador)
-
-
-
-
-
-
 
 
 def main():
