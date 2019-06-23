@@ -1,4 +1,4 @@
-## @file tranabalho1.py
+## @file trabalho1.py
 ## @title Servidor Proxy
 ## @author Natalia Oliveira Borges 160015863
 ## @author Livia Gomes Costa Fonseca 160034078
@@ -10,13 +10,14 @@ import string
 import time
 import os
 import os.path
+import re
 
 
 MAX_CONNECTIONS = 30  		# Maximo de conexoes simultaneas
 MAX_DATA = 4000  			# Tamanho maximo de leitura
 PROXY_PORT = 8002			# Porta padrao de conexao com o browser
-TIME = 31536000				
-MAX_TIME_CACHE = 10*TIME 	# Maximo de tempo que um arquivo pode ficar na cache
+#TIME = 31536000				
+#MAX_TIME_CACHE = 10*TIME 	# Maximo de tempo que um arquivo pode ficar na cache
 
 ## @brief Analisa a mensagem de requisicao e retorna o servidor web
 ## @param request Requisicao HTTP
@@ -111,6 +112,22 @@ def sendDenyTermsMessage(conn):
 	response = file.read()
 	conn.send(response)
 
+## @brief Salva o centeudo em um arquivo na cache
+## @param url Url da pagina requisitada
+## @param content Conteudo que sera armazenado
+def saveCache(url, content):
+	filename = url.replace('/', '_')
+	filename = 'cache/' + filename
+	cached_file = open(filename, 'a+')
+	cached_file.write(content)
+	cached_file.close()
+
+## @brief Recebe o conteudo da pagina do servidor e manda para o browser
+## @param request Requisicao HTTP
+## @param conn Conexao HTTP
+## @param webserver Servidor web
+## @param port Porta usada na conexao
+## @param url URL requisitada
 def fileFromServer(request, conn, webserver, port, url):
 	s_proxy_webserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s_proxy_webserver.connect((webserver, port))
@@ -127,34 +144,147 @@ def fileFromServer(request, conn, webserver, port, url):
 			break
 	s_proxy_webserver.close()
 	conn.close()
+	log(url, port, "LOG: Conteudo do servidor")
 
 
-def saveCache(url, content):
-	filename = url.replace('/', '_')
-	filename = 'cache/' + filename
-	cached_file = open(filename, 'a+')
-	cached_file.write(content)
-	cached_file.close()
+## @brief Retorna o valor do campo ETag do cabecalho HTTP
+## @param filename Nome do arquivo da cache que contem a mensagem HTTP
+def getETag(filename):
+	file = open(filename)
+
+	for line in file:
+		m = re.search(r'ETag:', line)
+		if m:
+			for part in line.split(' '):
+				n = re.search(r'"', part)
+				if n:
+					file.close()
+					return part
+	file.close()
+	return '0'
+		
 
 
-# Acessa o cabecalho da pagina HTTP e verifica se o conteudo foi modificado desde o preenchimento da cache
-# Se sim, retorna 1, senao, retorna 0
-def pageModified(request, conn, webserver, port, url):
+## @brief Acessa o cabecalho da pagina HTTP e verifica se o conteudo foi modificado desde o preenchimento da cache
+## @param request Requisicao HTTP
+## @param conn Conexao HTTP
+## @param webserver Servidor web
+## @param port Porta usada na conexao
+## @param url URL requisitada
+## @param filename Nome do arquivo da cache
+## @return 1 Houve modificacoes na pagina
+## @return 0 Nao houve modificacoes na pagina
+
+
+# A ideia e mandar uma mensagem com a etag e, se nao tiver modificacoes, o servidor envia uma mensagem com o codigo 304
+# Mas nao ta funcionando ainda e eu to com dificuldade nessa parte
+def pageModified(request, conn, webserver, port, url, filename):
+	etag = getETag(filename)
+	request1 = request + 'If-None-Match: ' + etag + '\n'
+	print '############################################'
+	print '#                REQUEST                   #'
+	print '############################################'
+	print request1
+	s_proxy_webserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s_proxy_webserver.connect((webserver, port))
+	s_proxy_webserver.send(request1) 
+
+	data = s_proxy_webserver.recv(MAX_DATA)
+	print '############################################'
+	print '#                  DATA                    #'
+	print '############################################'
+	print data
+
 	return 1
 
 
+## @brief Retorna o tempo em que o arquivo armazenado na cache e valido, com base no cabecalho HTTP
+## @param filename Nome do arquivo da cache
+def freshnessLifetime(filename):
+	if(os.path.exists(filename)):
+		file = open(filename)
 
+		for line in file:
+			m = re.search(r'Cache-Control:', line)
+			if m:
+				for part in line.split(' '):
+					n = re.search(r'max-age=', part)
+					if n:
+						Time = part.split('=')[1]
+						Time = Time[:-1]
+						Time = int(Time,10)
+						file.close()
+						return Time
+
+
+		file.close()
+		file = open(filename)
+		i=0
+		j=0
+		for line in file:
+			m = re.search(r'Expires:', line)
+			if m:
+				i=1
+				expires = line.split('s: ')[1]
+				result = time.strptime(expires, "%a, %d %b %Y %H:%M:%S GMT ")
+				expires = time.mktime(result)
+			n = re.search(r'Date:', line)
+			if n:
+				j=1
+				date = line.split('e: ')[1]
+				result = time.strptime(date, "%a, %d %b %Y %H:%M:%S GMT ")
+				date = time.mktime(result)
+			if i and j:
+				Time = expires - date
+				file.close()
+				return Time
+
+
+		file.close()
+		file = open(filename)
+		i=0
+		j=0
+		for line in file:
+			m = re.search(r'Last-Modified:', line)
+			if m:
+				i=1
+				last_mod = line.split('d: ')[1]
+				result = time.strptime(last_mod, "%a, %d %b %Y %H:%M:%S GMT ")
+				last_mod = time.mktime(result)
+			n = re.search(r'Date:', line)
+			if n:
+				j=1
+				date = line.split('e: ')[1]
+				result = time.strptime(date, "%a, %d %b %Y %H:%M:%S GMT ")
+				date = time.mktime(result)
+			if i and j:
+				Time = date - last_mod
+				Time = Time/10
+				file.close()
+				return Time
+
+		
+		file.close()
+	else:
+		return 3153600	
+
+## @brief Envia para o browser os dados requisitados
+## @param request Requisicao HTTP
+## @param conn Conexao HTTP
+## @param webserver Servidor web
+## @param port Porta usada na conexao
+## @param url URL requisitada
 def getData(request, conn, webserver, port, url):
 	filename = url.replace('/', '_')
 	filename = 'cache/' + filename
-	
-	try:
-		file = open(filename)
+
+	if(os.path.exists(filename)):
+		TIME = freshnessLifetime(filename)
 
 		# Verifica se o tempo desse arquivo da cache expirou
 		if( (time.time() - os.path.getmtime(filename)) > TIME ):
 
-			if(pageModified(request, conn, webserver, port, url)):
+			if(pageModified(request, conn, webserver, port, url, filename)):
 				fileFromServer(request, conn, webserver, port, url)
 				return
 
@@ -162,13 +292,17 @@ def getData(request, conn, webserver, port, url):
 				# Atualiza o horario do ultimo acesso e da ultima modificacao com o horario atual
 				os.utime(filename, None)
 
+		file = open(filename)
 		data = file.read()
 		conn.send(data)
-
 		conn.close()
+		file.close()
 
-	except IOError:
+		log(url, port, "LOG: Conteudo da cache")
+
+	else:
 		fileFromServer(request, conn, webserver, port, url)
+
 
 
 
