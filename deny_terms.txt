@@ -1,4 +1,3 @@
 dog
-cat
 iPhone
 book

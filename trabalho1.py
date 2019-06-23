@@ -60,6 +60,10 @@ def findURL (request):
 
 	return url
 
+## @brief Analisa arquivo de whitelist e verifica se o webserver esta listado.
+## @param webserver Nome do servidor web
+## @return True Se webserver esta ta lista
+## @return False Se webserver nao esta ta lista
 def verifyWhitelist (webserver):
 
 	whitelist = open("whitelist.txt", "r") 
@@ -72,6 +76,11 @@ def verifyWhitelist (webserver):
 
 	return False
 
+
+## @brief Analisa arquivo de blacklist e verifica se o webserver esta listado.
+## @param webserver Nome do servidor web
+## @return True Se webserver esta ta lista
+## @return False Se webserver nao esta ta lista
 def verifyBlacklist (webserver):
 
 	blacklist = open("blacklist.txt", "r") 
@@ -84,6 +93,9 @@ def verifyBlacklist (webserver):
 
 	return False
 
+## @brief Analisa arquivo de deny_terms e verifica se na mensagem existe algum desses termos.
+## @param message Mensagem a ser analisada
+## @return Termo encontrado na lista, se nao encontrar retorna string vazia
 def verifyDenyTerms (message):
 	deny_terms = open("deny_terms.txt", "r") 
 	data = deny_terms.read()
@@ -99,14 +111,24 @@ def verifyDenyTerms (message):
 
 	return ""
 
-def log (url, port, state):
-	print "REQUEST: ", url, "\n", "PORT: ", port, "\n", state, "\n\n"
+## @brief Log a ser mostrado na tela do terminal
+## @detail Printa na tela a url da pagina e a porta no servidor da conexao e o resultado da operacao do servidor proxy
+## @param url URL da pagina
+## @param porta Porta de destino do servidor web
+## @param state Permissao ou nao da conexao, ou log de excessao
+## @param cache Relatorio da cache
+def log (url, port, state, cache):
+	print "REQUEST: ", url, "\n", "PORT: ", port, "\n", state, "\n", cache, "\n"
 
+## @brief Envia para o servidor a mensagem de blacklist
+## @param conn Conexao
 def sendBlacklistMessage(conn):
 	file = open("blacklist_message.txt", "r") 
 	response = file.read()
 	conn.send(response)
 
+## @brief Envia para o servidor a mensagem de whitelist
+## @param conn Conexao HTTP
 def sendDenyTermsMessage(conn):
 	file = open("denyterms_message.txt", "r") 
 	response = file.read()
@@ -144,7 +166,6 @@ def fileFromServer(request, conn, webserver, port, url):
 			break
 	s_proxy_webserver.close()
 	conn.close()
-	log(url, port, "LOG: Conteudo do servidor")
 
 
 ## @brief Retorna o valor do campo ETag do cabecalho HTTP
@@ -164,7 +185,6 @@ def getETag(filename):
 	return '0'
 		
 
-
 ## @brief Acessa o cabecalho da pagina HTTP e verifica se o conteudo foi modificado desde o preenchimento da cache
 ## @param request Requisicao HTTP
 ## @param conn Conexao HTTP
@@ -174,26 +194,25 @@ def getETag(filename):
 ## @param filename Nome do arquivo da cache
 ## @return 1 Houve modificacoes na pagina
 ## @return 0 Nao houve modificacoes na pagina
-
-
-# A ideia e mandar uma mensagem com a etag e, se nao tiver modificacoes, o servidor envia uma mensagem com o codigo 304
-# Mas nao ta funcionando ainda e eu to com dificuldade nessa parte
 def pageModified(request, conn, webserver, port, url, filename):
 	etag = getETag(filename)
-	request1 = request + 'If-None-Match: ' + etag + '\n'
-	print '############################################'
-	print '#                REQUEST                   #'
-	print '############################################'
-	print request1
+
+	request1 = request
+	request1 = request1[:-2]
+	request1 = request1 + 'If-None-Match: ' + etag + '\r\n'
+
 	s_proxy_webserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s_proxy_webserver.connect((webserver, port))
 	s_proxy_webserver.send(request1) 
 
 	data = s_proxy_webserver.recv(MAX_DATA)
-	print '############################################'
-	print '#                  DATA                    #'
-	print '############################################'
-	print data
+
+	lines = data.split('\n')
+	words = lines[0].split(' ')
+	code = words[1]
+
+	if int(code) == 304:
+		return 0
 
 	return 1
 
@@ -286,11 +305,14 @@ def getData(request, conn, webserver, port, url):
 
 			if(pageModified(request, conn, webserver, port, url, filename)):
 				fileFromServer(request, conn, webserver, port, url)
-				return
+				return ""
 
 			else:
 				# Atualiza o horario do ultimo acesso e da ultima modificacao com o horario atual
 				os.utime(filename, None)
+				cache = "CACHE: Pagina recuperada da cache, tempo esgotado, mas pagina nao modificada\n"
+		else:
+			cache = "CACHE: Pagina recuperada da cache, tempo nao esgotado\n"
 
 		file = open(filename)
 		data = file.read()
@@ -298,16 +320,80 @@ def getData(request, conn, webserver, port, url):
 		conn.close()
 		file.close()
 
-		log(url, port, "LOG: Conteudo da cache")
+		return cache
 
 	else:
 		fileFromServer(request, conn, webserver, port, url)
+		return ""
+
+## @brief Solicita resposta da requisicao e analisa para deny_terms
+## @param request Requisicao HTTP
+## @param conn Conexao HTTP
+## @param webserver Servidor web
+## @param port Porta usada na conexao
+## @param url URL requisitada
+def denyTermsResponse(request, conn, webserver, port, url):
+	filename = url.replace('/', '_')
+	filename = 'cache/' + filename
+
+	if(os.path.exists(filename)):
+		TIME = freshnessLifetime(filename)
+		print (TIME)
+
+		# Verifica se o tempo desse arquivo da cache expirou
+		if( ((time.time() - os.path.getmtime(filename)) < TIME) or not(pageModified(request, conn, webserver, port, url, filename)) ):
+
+			if(not(pageModified(request, conn, webserver, port, url, filename))):
+				os.utime(filename, None)
+				cache = "CACHE: Pagina recuperada da cache, tempo esgotado, mas pagina nao modificada\n"
+			else:
+				cache = "CACHE: Pagina recuperada da cache, tempo nao esgotado\n"
+
+			file = open(filename)
+			data = file.read()
+			if(verifyDenyTerms(data) == ""):
+				conn.send(data)
+				log(url, port, "LOG: Site permitido (Sem termos proibidos)", cache)
+			else:
+				sendDenyTermsMessage(conn)
+				log(url, port, "LOG: Site bloqueado (Termo proibido na resposta: %s)" % verifyDenyTerms(data), cache)
+			file.close()
+
+		conn.close()
+		return
+
+	try:
+		s_proxy_webserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s_proxy_webserver.connect((webserver, port))
+		s_proxy_webserver.send(request)         
+	
+		while 1:
+			data = s_proxy_webserver.recv(MAX_DATA)
+			
+			if (len(data) > 0):
+				saveCache(url,data)
+				if(verifyDenyTerms(data) == ""):
+					conn.send(data)
+					log(url, port, "LOG: Site permitido (Sem termos proibidos)", "")
+				else:
+					sendDenyTermsMessage(conn)
+					log(url, port, "LOG: Site bloqueado (Termo proibido na resposta: %s)" % verifyDenyTerms(data), "")
+			else:
+				break
+		s_proxy_webserver.close()
+		conn.close()
+		
+
+	except socket.error, (value, message):
+		exception = "EXCEPION: " + message
+		log(url, port, exception,"")
+		
 
 
-
-
-
-def  manageRequest (conn, client_addr, contador):
+## @brief Verifica se o servidor esta na blacklist, whitelist ou denyterms e solicita a resposta
+## @param conn Conexao HTTP
+## @param client_addr Endereco do cliente
+def  manageRequest (conn, client_addr):
 	# Mensagem HTTP
 	request = conn.recv(MAX_DATA)
 
@@ -318,52 +404,28 @@ def  manageRequest (conn, client_addr, contador):
 	if(isBlack):
 		sendBlacklistMessage(conn)
 		conn.close()
-		log(url, port, "LOG: Site bloqueado (Blacklist)")
+		log(url, port, "LOG: Site bloqueado (Blacklist)","")
 		return
 
 
 	isWhite = verifyWhitelist(webserver)
 	if(isWhite):
 		try:
-			getData(request, conn, webserver, port, url)
-			log(url, port, "LOG: Site permitido (Whitelist)")
+			cache = getData(request, conn, webserver, port, url)
+			log(url, port, "LOG: Site permitido (Whitelist)", cache)
 
 		except socket.error, (value, message):
 			exception = "EXCEPION: " + message
-			log(url, port, exception)
+			log(url, port, exception, "")
 
 	else:
 		if(verifyDenyTerms(request) == ""):
-
-			try:
-				s_proxy_webserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-				s_proxy_webserver.connect((webserver, port))
-				s_proxy_webserver.send(request)         
-			
-				while 1:
-					data = s_proxy_webserver.recv(MAX_DATA)
-					
-					if (len(data) > 0):
-						if(verifyDenyTerms(data) == ""):
-							getData(request, conn, webserver, port, url)
-							log(url, port, "LOG: Site permitido (Sem termos proibidos)")
-						else:
-							sendDenyTermsMessage(conn)
-							log(url, port, "LOG: Site bloqueado (Termo proibido na resposta: %s)" % verifyDenyTerms(data))
-					else:
-						break
-				s_proxy_webserver.close()
-				conn.close()
-				
-
-			except socket.error, (value, message):
-				exception = "EXCEPION: " + message
-				log(url, port, exception)
+			denyTermsResponse(request, conn, webserver, port, url)
 
 		else:
 			sendDenyTermsMessage(conn)
 			conn.close()
-			log(url, port, "LOG: Site bloqueado (Termo proibido na requisicao: %s)" % verifyDenyTerms(request))
+			log(url, port, "LOG: Site bloqueado (Termo proibido na requisicao: %s)" % verifyDenyTerms(request),"")
 	
 
 	conn.close()
@@ -374,26 +436,30 @@ def main():
 	# O browser de internet deve ser configurado para operar na porta definida.
 	port = PROXY_PORT
 	host = ""
-	contador = 0
+	conn = 0
 
-	# Criando uma conexao socket entre o browser e o servido proxy
-	s_browser_proxy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	s_browser_proxy.bind((host,port))
-	s_browser_proxy.listen(MAX_CONNECTIONS)
+	try:
+		# Criando uma conexao socket entre o browser e o servido proxy
+		s_browser_proxy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s_browser_proxy.bind((host,port))
+		s_browser_proxy.listen(MAX_CONNECTIONS)
 
-	# Ficar ouvindo a porta e interceptando pacotes
-	while 1:
-		try:
-			#print("Contador %s" % contador)
+		# Ficar ouvindo a porta e interceptando pacotes
+		while 1:
 			conn, client_addr = s_browser_proxy.accept()
-			#manageRequest(conn, client_addr, contador)
+			thread.start_new_thread(manageRequest, (conn, client_addr))
 
-			thread.start_new_thread(manageRequest, (conn, client_addr, contador))
-			contador = contador+1
-		except:
-			print("problem")
-			break
+	except KeyboardInterrupt:
+		print("Tchau, Servidor Proxy")
 
+	except socket.error, (value, message):
+		print(message)
+
+	except:
+		print("Ocorreu um erro inesperado")
+
+	if conn:
+		conn.close()
 	s_browser_proxy.close()
 
 
