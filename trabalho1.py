@@ -236,7 +236,7 @@ def freshnessLifetime(filename):
 					n = re.search(r'max-age=', part)
 					if n:
 						Time = part.split('=')[1]
-						while not('0' <= Time[len(a)-1] <= '9'):
+						while not('0' <= Time[len(Time)-1] <= '9'):
 							Time = Time[:-1]
 						Time = int(Time,10)
 						file.close()
@@ -438,7 +438,19 @@ def  manageRequest (conn, client_addr):
 	conn.close()
 
 
+## @brief Apaga os arquivos da cache que estao armazenados ha mais tempo que determinado valor
+## @param Time Tempo que determina se o arquivo sera apagado ou nao. Se o arquivo esta armazenado a mais tempo que esse valor, apaga
+def cleanCache(Time):
+	for filename in os.listdir('cache/'):
+		filename = 'cache/' + filename
+		if((time.time() - os.path.getmtime(filename)) > Time):
+			os.remove(filename)
+
+
 def main():
+
+	if not(os.path.exists('cache/')):
+		os.makedirs('cache/')
 
 	# O browser de internet deve ser configurado para operar na porta definida.
 	port = PROXY_PORT
@@ -455,6 +467,9 @@ def main():
 		while 1:
 			conn, client_addr = s_browser_proxy.accept()
 			thread.start_new_thread(manageRequest, (conn, client_addr))
+			# A cada 45 dias, limpa a cache
+			if not(time.time()%3888000):
+				cleanCache(3456000) # O valor passado corresponde a 40 dias
 
 	except KeyboardInterrupt:
 		print("Tchau, Servidor Proxy")
