@@ -56,6 +56,9 @@ def findURL (request):
 	# Encontra url
 	lines = request.split('\n')
 	words = lines[0].split(' ')
+	if(len(words) < 2):
+		return '0'
+
 	url = words[1]
 
 	return url
@@ -197,6 +200,9 @@ def getETag(filename):
 def pageModified(request, conn, webserver, port, url, filename):
 	etag = getETag(filename)
 
+	if(etag == '0'):
+		return 1
+
 	request1 = request
 	request1 = request1[:-2]
 	request1 = request1 + 'If-None-Match: ' + etag + '\r\n'
@@ -230,7 +236,8 @@ def freshnessLifetime(filename):
 					n = re.search(r'max-age=', part)
 					if n:
 						Time = part.split('=')[1]
-						Time = Time[:-1]
+						while not('0' <= Time[len(a)-1] <= '9'):
+							Time = Time[:-1]
 						Time = int(Time,10)
 						file.close()
 						return Time
@@ -343,7 +350,7 @@ def denyTermsResponse(request, conn, webserver, port, url):
 		# Verifica se o tempo desse arquivo da cache expirou
 		if( ((time.time() - os.path.getmtime(filename)) < TIME) or not(pageModified(request, conn, webserver, port, url, filename)) ):
 
-			if(not(pageModified(request, conn, webserver, port, url, filename))):
+			if((time.time() - os.path.getmtime(filename)) > TIME):
 				os.utime(filename, None)
 				cache = "CACHE: Pagina recuperada da cache, tempo esgotado, mas pagina nao modificada\n"
 			else:
